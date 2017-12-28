@@ -2,6 +2,13 @@ package internal
 
 import "fmt"
 
+const (
+	IndexExists = `SELECT 1
+FROM   pg_class c
+JOIN   pg_namespace n ON n.oid = c.relnamespace
+WHERE  c.relname = $1 AND n.nspname = $2;`
+)
+
 func makeARRAYOfTEXT(text []string) string {
 	if len(text) == 0 {
 		return "ARRAY['']"

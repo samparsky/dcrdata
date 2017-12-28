@@ -18,6 +18,11 @@ import (
 	"github.com/lib/pq"
 )
 
+func ExistsIndex(db *sql.DB, indexName string) (exists bool, err error) {
+	err = db.QueryRow(internal.IndexExists, indexName, "public").Scan(&exists)
+	return
+}
+
 func RetrievePkScriptByID(db *sql.DB, id uint64) (pkScript []byte, err error) {
 	err = db.QueryRow(internal.SelectPkScriptByID, id).Scan(&pkScript)
 	return
@@ -240,6 +245,25 @@ func DeleteDuplicateVouts(db *sql.DB) (int64, error) {
 	res, err := db.Exec(internal.DeleteVoutDuplicateRows)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete duplicate vouts: %v", err)
+	}
+	if res == nil {
+		return 0, nil
+	}
+
+	var N int64
+	N, err = res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf(`RowsAffected failed: %v`, err)
+	}
+	return N, err
+}
+
+// DeleteDuplicateTxns deletes rows in transactions with duplicate tx-block
+// hashes, leaving the one row with the lowest id.
+func DeleteDuplicateTxns(db *sql.DB) (int64, error) {
+	res, err := db.Exec(internal.DeleteTxDuplicateRows)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete duplicate transactions: %v", err)
 	}
 	if res == nil {
 		return 0, nil

@@ -325,6 +325,14 @@ func mainCore() error {
 		// TODO: remove entries from addresses table that reference removed
 		// vins/vouts.
 
+		// Remove duplicate transactions
+		log.Info("Finding and removing duplicate transactions entries before indexing...")
+		var numTxnsRemoved int64
+		if numTxnsRemoved, err = db.DeleteDuplicateTxns(); err != nil {
+			return fmt.Errorf("dcrpg.DeleteDuplicateTxns failed: %v", err)
+		}
+		log.Infof("Removed %d duplicate transactions entries.", numTxnsRemoved)
+
 		// Create indexes
 		if err = db.IndexAll(); err != nil {
 			return fmt.Errorf("IndexAll failed: %v", err)
@@ -338,6 +346,7 @@ func mainCore() error {
 	if !cfg.AddrSpendInfoOnline {
 		// Remove indexes not on funding txns (remove on address table indexes)
 		_ = db.DeindexAddressTable() // ignore errors for non-existent indexes
+		db.EnableDuplicateCheckOnInsert(false)
 		log.Infof("Populating spending tx info in address table...")
 		numAddresses, err := db.UpdateSpendingInfoInAllAddresses()
 		if err != nil {
