@@ -333,6 +333,27 @@ func mainCore() error {
 		}
 		log.Infof("Removed %d duplicate transactions entries.", numTxnsRemoved)
 
+		// Remove duplicate tickets
+		log.Info("Finding and removing duplicate tickets entries before indexing...")
+		if numTxnsRemoved, err = db.DeleteDuplicateTickets(); err != nil {
+			return fmt.Errorf("dcrpg.DeleteDuplicateTickets failed: %v", err)
+		}
+		log.Infof("Removed %d duplicate tickets entries.", numTxnsRemoved)
+
+		// Remove duplicate votes
+		log.Info("Finding and removing duplicate votes entries before indexing...")
+		if numTxnsRemoved, err = db.DeleteDuplicateVotes(); err != nil {
+			return fmt.Errorf("dcrpg.DeleteDuplicateVotes failed: %v", err)
+		}
+		log.Infof("Removed %d duplicate votes entries.", numTxnsRemoved)
+
+		// Remove duplicate misses
+		log.Info("Finding and removing duplicate misses entries before indexing...")
+		if numTxnsRemoved, err = db.DeleteDuplicateMisses(); err != nil {
+			return fmt.Errorf("dcrpg.DeleteDuplicateMisses failed: %v", err)
+		}
+		log.Infof("Removed %d duplicate misses entries.", numTxnsRemoved)
+
 		// Create indexes
 		if err = db.IndexAll(); err != nil {
 			return fmt.Errorf("IndexAll failed: %v", err)

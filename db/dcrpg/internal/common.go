@@ -7,6 +7,12 @@ const (
 FROM   pg_class c
 JOIN   pg_namespace n ON n.oid = c.relnamespace
 WHERE  c.relname = $1 AND n.nspname = $2;`
+
+	IndexIsUnique = `SELECT indisunique
+FROM   pg_index i
+JOIN   pg_class c ON c.oid = i.indexrelid
+JOIN   pg_namespace n ON n.oid = c.relnamespace
+WHERE  c.relname = $1 AND n.nspname = $2`
 )
 
 func makeARRAYOfTEXT(text []string) string {
