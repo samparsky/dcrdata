@@ -190,24 +190,9 @@ func (db *ChainDB) SyncChainDB(client *rpcclient.Client, quit chan struct{},
 	speedReport()
 
 	if reindexing || newIndexes {
-		// Remove duplicate vins
-		log.Info("Finding and removing duplicate vins entries before indexing...")
-		var numVinsRemoved int64
-		if numVinsRemoved, err = db.DeleteDuplicateVins(); err != nil {
-			return 0, fmt.Errorf("dcrpg.DeleteDuplicateVins failed: %v", err)
+		if err = db.DeleteDuplicates(); err != nil {
+			return 0, err
 		}
-		log.Infof("Removed %d duplicate vins entries.", numVinsRemoved)
-
-		// Remove duplicate vouts
-		log.Info("Finding and removing duplicate vouts entries before indexing...")
-		var numVoutsRemoved int64
-		if numVoutsRemoved, err = db.DeleteDuplicateVouts(); err != nil {
-			return 0, fmt.Errorf("dcrpg.DeleteDuplicateVouts failed: %v", err)
-		}
-		log.Infof("Removed %d duplicate vouts entries.", numVoutsRemoved)
-
-		// TODO: remove entries from addresses table that reference removed
-		// vins/vouts.
 
 		// Create indexes
 		if err = db.IndexAll(); err != nil {

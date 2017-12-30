@@ -328,6 +328,59 @@ func (pgb *ChainDB) Store(blockData *blockdata.BlockData, msgBlock *wire.MsgBloc
 	return err
 }
 
+func (pgb *ChainDB) DeleteDuplicates() error {
+	var err error
+	// Remove duplicate vins
+	log.Info("Finding and removing duplicate vins entries...")
+	var numVinsRemoved int64
+	if numVinsRemoved, err = pgb.DeleteDuplicateVins(); err != nil {
+		return fmt.Errorf("dcrpg.DeleteDuplicateVins failed: %v", err)
+	}
+	log.Infof("Removed %d duplicate vins entries.", numVinsRemoved)
+
+	// Remove duplicate vouts
+	log.Info("Finding and removing duplicate vouts entries before indexing...")
+	var numVoutsRemoved int64
+	if numVoutsRemoved, err = pgb.DeleteDuplicateVouts(); err != nil {
+		return fmt.Errorf("dcrpg.DeleteDuplicateVouts failed: %v", err)
+	}
+	log.Infof("Removed %d duplicate vouts entries.", numVoutsRemoved)
+
+	// TODO: remove entries from addresses table that reference removed
+	// vins/vouts.
+
+	// Remove duplicate transactions
+	log.Info("Finding and removing duplicate transactions entries before indexing...")
+	var numTxnsRemoved int64
+	if numTxnsRemoved, err = pgb.DeleteDuplicateTxns(); err != nil {
+		return fmt.Errorf("dcrpg.DeleteDuplicateTxns failed: %v", err)
+	}
+	log.Infof("Removed %d duplicate transactions entries.", numTxnsRemoved)
+
+	// Remove duplicate tickets
+	log.Info("Finding and removing duplicate tickets entries before indexing...")
+	if numTxnsRemoved, err = pgb.DeleteDuplicateTickets(); err != nil {
+		return fmt.Errorf("dcrpg.DeleteDuplicateTickets failed: %v", err)
+	}
+	log.Infof("Removed %d duplicate tickets entries.", numTxnsRemoved)
+
+	// Remove duplicate votes
+	log.Info("Finding and removing duplicate votes entries before indexing...")
+	if numTxnsRemoved, err = pgb.DeleteDuplicateVotes(); err != nil {
+		return fmt.Errorf("dcrpg.DeleteDuplicateVotes failed: %v", err)
+	}
+	log.Infof("Removed %d duplicate votes entries.", numTxnsRemoved)
+
+	// Remove duplicate misses
+	log.Info("Finding and removing duplicate misses entries before indexing...")
+	if numTxnsRemoved, err = pgb.DeleteDuplicateMisses(); err != nil {
+		return fmt.Errorf("dcrpg.DeleteDuplicateMisses failed: %v", err)
+	}
+	log.Infof("Removed %d duplicate misses entries.", numTxnsRemoved)
+
+	return err
+}
+
 func (pgb *ChainDB) DeleteDuplicateVins() (int64, error) {
 	return DeleteDuplicateVins(pgb.db)
 }
@@ -717,15 +770,36 @@ func (pgb *ChainDB) storeTxns(msgBlock *MsgBlockPG, txTree int8,
 		}
 
 		// Votes
-		_, _, err = InsertVotes(pgb.db, dbTransactions, msgBlock, pgb.dupChecks)
+		voteDbIDs, _, ticketHashes, _, err := InsertVotes(pgb.db,
+			dbTransactions, msgBlock, pgb.dupChecks)
 		if err != nil && err != sql.ErrNoRows {
 			log.Error("InsertVotes:", err)
 			txRes.err = err
 			return txRes
 		}
+
+		// To update spending info in tickets table, get the spent tickets' DB
+		// row IDs and block heights.
+		ticketDbIDs := make([]uint64, len(ticketHashes))
+		blockHeights := make([]int64, len(ticketHashes))
+		spendTypes := make([]TicketSpendType, len(ticketHashes))
+		for iv := range ticketHashes {
+			spendTypes[iv] = TicketVoted
+			ticketDbIDs[iv], blockHeights[iv], err =
+				RetrieveTicketIDHeightByHash(pgb.db, ticketHashes[iv])
+			if err != nil {
+				log.Error("RetrieveTxIDHeightByHash:", err)
+				txRes.err = err
+				return txRes
+			}
+		}
+
+		// Update tickets table with spending info from new votes
+		err = SetSpendingForTickets(pgb.db, ticketDbIDs, voteDbIDs, blockHeights, spendTypes)
+		if err != nil {
+			log.Warn("SetSpendingForTickets:", err)
+		}
 	}
-	// TODO: update spending info of tickets given votes (redundant with
-	// spending info in addresses table)
 
 	// Store tx Db IDs as funding tx in AddressRows and rearrange
 	dbAddressRowsFlat := make([]*dbtypes.AddressRow, 0, totalAddressRows)
