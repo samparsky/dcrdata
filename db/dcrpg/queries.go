@@ -47,16 +47,83 @@ func RetrieveVoutIDByOutpoint(db *sql.DB, txHash string, voutIndex uint32) (id u
 	return
 }
 
-func RetrieveTicketIDHeightByHash(db *sql.DB, ticketID string) (id uint64, blockHeight int64, err error) {
-	err = db.QueryRow(internal.SelectTicketIDHeightByHash, ticketID).Scan(&id, &blockHeight)
+func RetrieveAllVotesDbIDsHeightsTicketHashes(db *sql.DB) (ids []uint64, heights []int64,
+	ticketHashes []string, err error) {
+	rows, err := db.Query(internal.SelectAllVoteDbIDsHeightsTicketHashes)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer func() {
+		if e := rows.Close(); e != nil {
+			log.Errorf("Close of Query failed: %v", e)
+		}
+	}()
+
+	for rows.Next() {
+		var id uint64
+		var height int64
+		var ticketHash string
+		err = rows.Scan(&id, &height, &ticketHash)
+		if err != nil {
+			break
+		}
+
+		ids = append(ids, id)
+		heights = append(heights, height)
+		ticketHashes = append(ticketHashes, ticketHash)
+	}
 	return
 }
 
-func SetSpendingForTickets(db *sql.DB, ticketDbIDs, spendDbIDs []uint64,
-	blockHeights []int64, spendTypes []TicketSpendType) error {
+func RetrieveTicketIDHeightByHash(db *sql.DB, ticketHash string) (id uint64, blockHeight int64, err error) {
+	err = db.QueryRow(internal.SelectTicketIDHeightByHash, ticketHash).Scan(&id, &blockHeight)
+	return
+}
+
+func RetrieveTicketIDByHash(db *sql.DB, ticketHash string) (id uint64, err error) {
+	err = db.QueryRow(internal.SelectTicketIDByHash, ticketHash).Scan(&id)
+	return
+}
+
+func RetrieveTicketIDsByHashes(db *sql.DB, ticketHashes []string) (ids []uint64, err error) {
 	dbtx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf(`unable to begin database transaction: %v`, err)
+		return nil, fmt.Errorf("unable to begin database transaction: %v", err)
+	}
+
+	stmt, err := dbtx.Prepare(internal.SelectTicketIDByHash)
+	if err != nil {
+		log.Errorf("Tickets SELECT prepare: %v", err)
+		_ = stmt.Close()
+		_ = dbtx.Rollback() // try, but we want the Prepare error back
+		return nil, err
+	}
+
+	ids = make([]uint64, 0, len(ticketHashes))
+	for ih := range ticketHashes {
+		var id uint64
+		err = stmt.QueryRow(ticketHashes[ih]).Scan(&id)
+		if err != nil {
+			_ = stmt.Close() // try, but we want the QueryRow error back
+			if errRoll := dbtx.Rollback(); errRoll != nil {
+				log.Errorf("Rollback failed: %v", errRoll)
+			}
+			return ids, fmt.Errorf("Tickets SELECT exec failed: %v", err)
+		}
+		ids = append(ids, id)
+	}
+
+	// Close prepared statement. Ignore errors as we'll Commit regardless.
+	_ = stmt.Close()
+
+	return ids, dbtx.Commit()
+}
+
+func SetSpendingForTickets(db *sql.DB, ticketDbIDs, spendDbIDs []uint64,
+	blockHeights []int64, spendTypes []TicketSpendType) (int64, error) {
+	dbtx, err := db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf(`unable to begin database transaction: %v`, err)
 	}
 
 	var stmt *sql.Stmt
@@ -64,6 +131,34 @@ func SetSpendingForTickets(db *sql.DB, ticketDbIDs, spendDbIDs []uint64,
 	if err != nil {
 		// Already up a creek. Just return error from Prepare.
 		_ = dbtx.Rollback()
+		return 0, fmt.Errorf("tickets SELECT prepare failed: %v", err)
+	}
+
+	var totalTicketsUpdated int64
+	rowsAffected := make([]int64, len(ticketDbIDs))
+	for i, ticketDbID := range ticketDbIDs {
+		rowsAffected[i], err = sqlExecStmt(stmt, "failed to set ticket spending info: ",
+			ticketDbID, blockHeights[i], spendDbIDs[i], spendTypes[i])
+		if err != nil {
+			_ = stmt.Close()
+			return 0, dbtx.Rollback()
+		}
+		totalTicketsUpdated += rowsAffected[i]
+		if rowsAffected[i] != 1 {
+			log.Warnf("Updated spending info for %d tickets, expecting just 1!",
+				rowsAffected[i])
+		}
+	}
+
+	_ = stmt.Close()
+
+	return totalTicketsUpdated, dbtx.Commit()
+}
+
+func setSpendingForTickets(dbtx *sql.Tx, ticketDbIDs, spendDbIDs []uint64,
+	blockHeights []int64, spendTypes []TicketSpendType) error {
+	stmt, err := dbtx.Prepare(internal.SetTicketSpendingInfoForTicketDbID)
+	if err != nil {
 		return fmt.Errorf("tickets SELECT prepare failed: %v", err)
 	}
 
@@ -73,7 +168,7 @@ func SetSpendingForTickets(db *sql.DB, ticketDbIDs, spendDbIDs []uint64,
 			ticketDbID, blockHeights[i], spendDbIDs[i], spendTypes[i])
 		if err != nil {
 			_ = stmt.Close()
-			return dbtx.Rollback()
+			return err
 		}
 		if rowsAffected[i] != 1 {
 			log.Warnf("Updated spending info for %d tickets, expecting just 1!",
@@ -81,7 +176,7 @@ func SetSpendingForTickets(db *sql.DB, ticketDbIDs, spendDbIDs []uint64,
 		}
 	}
 
-	return dbtx.Commit()
+	return stmt.Close()
 }
 
 func SetSpendingForVinDbIDs(db *sql.DB, vinDbIDs []uint64) ([]int64, int64, error) {

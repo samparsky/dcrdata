@@ -51,6 +51,7 @@ const (
 	SelectTicketsForPriceAtLeast = `SELECT * FROM tickets WHERE price >= $1;`
 	SelectTicketsForPriceAtMost  = `SELECT * FROM tickets WHERE price <= $1;`
 	SelectTicketIDHeightByHash   = `SELECT id, block_height FROM tickets WHERE tx_hash = $1;`
+	SelectTicketIDByHash         = `SELECT id FROM tickets WHERE tx_hash = $1;`
 
 	// Update
 	SetTicketSpendingInfoForHash = `UPDATE tickets
@@ -121,6 +122,8 @@ const (
 	SELECT id FROM votes
 	WHERE  tx_hash = $3 AND block_hash = $4
 	LIMIT  1;`
+
+	SelectAllVoteDbIDsHeightsTicketHashes = `SELECT id, height, ticket_hash FROM votes;`
 
 	// Index
 	IndexVotesTableOnHashes = `CREATE UNIQUE INDEX uix_votes_hashes_index

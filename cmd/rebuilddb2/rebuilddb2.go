@@ -284,7 +284,7 @@ func mainCore() error {
 
 		var numVins, numVouts int64
 		numVins, numVouts, err = db.StoreBlock(block.MsgBlock(), winners,
-			true, cfg.AddrSpendInfoOnline)
+			true, cfg.AddrSpendInfoOnline, cfg.TicketSpendInfoOnline)
 		if err != nil {
 			return fmt.Errorf("StoreBlock failed: %v", err)
 		}
@@ -318,6 +318,9 @@ func mainCore() error {
 		if cfg.AddrSpendInfoOnline {
 			err = db.IndexAddressTable()
 		}
+		if cfg.TicketSpendInfoOnline {
+			err = db.IndexTicketsTable()
+		}
 	}
 
 	if !cfg.AddrSpendInfoOnline {
@@ -333,6 +336,22 @@ func mainCore() error {
 		log.Infof("Updated %d rows of address table", numAddresses)
 		if err = db.IndexAddressTable(); err != nil {
 			log.Errorf("IndexAddressTable FAILED: %v", err)
+		}
+	}
+
+	if !cfg.TicketSpendInfoOnline {
+		// Remove indexes not on funding txns (remove on address table indexes)
+		_ = db.DeindexTicketsTable() // ignore errors for non-existent indexes
+		db.EnableDuplicateCheckOnInsert(false)
+		log.Infof("Populating spending tx info in tickets table...")
+		numTicketsUpdated, err := db.UpdateSpendingInfoInAllTickets()
+		if err != nil {
+			log.Errorf("UpdateSpendingInfoInAllTickets FAILED: %v", err)
+		}
+		// Index tickets table
+		log.Infof("Updated %d rows of address table", numTicketsUpdated)
+		if err = db.IndexTicketsTable(); err != nil {
+			log.Errorf("IndexTicketsTable FAILED: %v", err)
 		}
 	}
 
